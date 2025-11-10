@@ -42,6 +42,7 @@
 
 #include <sstream>
 
+#include "base/statistics.hh"
 #include "cpu/func_unit.hh"
 
 namespace gem5
@@ -83,7 +84,7 @@ FUPool::~FUPool()
 
 // Constructor
 FUPool::FUPool(const Params &p)
-    : SimObject(p)
+    : SimObject(p), compSimp(this)
 {
     numFU = 0;
 
@@ -119,7 +120,8 @@ FUPool::FUPool(const Params &p)
                     fuPerCapList[j->opClass].addFU(numFU + k);
 
                 // indicate that this FU has the capability
-                fu->addCapability(j->opClass, j->opLat, j->pipelined);
+                fu->addCapability(j->opClass, j->opLat, j->pipelined,
+                                 j->compSimplification, j->fastPathLat);
 
                 if (j->opLat > maxOpLatencies[j->opClass])
                     maxOpLatencies[j->opClass] = j->opLat;
@@ -243,6 +245,35 @@ FUPool::isDrained() const
         is_drained = is_drained && !unitBusy[i];
 
     return is_drained;
+}
+
+bool
+FUPool::supportsCompSimplification(OpClass capability)
+{
+    // Check if any functional unit in this pool supports computational simplification
+    // for the given operation class (e.g., IntMult, IntAlu)
+    for (int i = 0; i < numFU; ++i) {
+        if (funcUnits[i]->provides(capability) &&
+            funcUnits[i]->supportsCompSimplification(capability)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+Cycles
+FUPool::getFastPathLatency(OpClass capability)
+{
+    // Find first FU that provides this capability and supports comp simplification
+    for (int i = 0; i < numFU; ++i) {
+        if (funcUnits[i]->provides(capability) &&
+            funcUnits[i]->supportsCompSimplification(capability)) {
+            return Cycles(funcUnits[i]->getFastPathLatency(capability));
+        }
+    }
+
+    // Fall back to normal latency
+    return maxOpLatencies[capability];
 }
 
 } // namespace o3

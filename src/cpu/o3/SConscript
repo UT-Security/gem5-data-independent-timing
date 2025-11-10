@@ -38,6 +38,7 @@ if env['CONF']['BUILD_ISA']:
         enums=['SMTFetchPolicy', 'SMTQueuePolicy', 'CommitPolicy'])
 
     Source('commit.cc')
+    Source('comp_simp.cc')
     Source('cpu.cc')
     Source('decode.cc')
     Source('dyn_inst.cc')
@@ -59,6 +60,7 @@ if env['CONF']['BUILD_ISA']:
     Source('thread_state.cc')
 
     DebugFlag('CommitRate')
+    DebugFlag('CompSimp', 'Computational Simplification fast-path execution')
     DebugFlag('IEW')
     DebugFlag('IQ')
     DebugFlag('LSQ')
@@ -73,7 +75,7 @@ if env['CONF']['BUILD_ISA']:
 
     CompoundFlag('O3CPUAll', [ 'Fetch', 'Decode', 'Rename', 'IEW', 'Commit',
         'IQ', 'ROB', 'FreeList', 'LSQ', 'LSQUnit', 'StoreSet', 'MemDepUnit',
-        'DynInst', 'O3CPU', 'Activity', 'Scoreboard', 'Writeback' ])
+        'DynInst', 'O3CPU', 'Activity', 'Scoreboard', 'Writeback', 'CompSimp' ])
 
     SimObject('BaseO3Checker.py', sim_objects=['BaseO3Checker'])
     Source('checker.cc')

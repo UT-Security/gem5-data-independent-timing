@@ -45,6 +45,7 @@
 
 #include "cpu/o3/iew.hh"
 
+#include <iostream>
 #include <queue>
 
 #include "cpu/checker/cpu.hh"
@@ -486,6 +487,27 @@ IEW::squashDueToMemOrder(const DynInstPtr& inst, ThreadID tid)
 
         // Must include the memory violator in the squash.
         toCommit->includeSquashInst[tid] = true;
+
+        wroteToTimeBuffer = true;
+    }
+}
+
+void
+IEW::squashDueToLoadValueMispred(const DynInstPtr& inst, ThreadID tid)
+{
+    DPRINTF(IEW, "[tid:%i] Load value misprediction, squashing younger "
+            "insts, PC: %s [sn:%llu].\n", tid, inst->pcState(), inst->seqNum);
+
+    if (!toCommit->squash[tid] ||
+            inst->seqNum < toCommit->squashedSeqNum[tid]) {
+        toCommit->squash[tid] = true;
+        toCommit->squashedSeqNum[tid] = inst->seqNum;
+        set(toCommit->pc[tid], inst->pcState());
+        inst->staticInst->advancePC(*toCommit->pc[tid]);
+
+        toCommit->mispredictInst[tid] = inst;
+        // Don't include the load itself in the squash - it has correct data
+        toCommit->includeSquashInst[tid] = false;
 
         wroteToTimeBuffer = true;
     }
@@ -996,6 +1018,46 @@ IEW::dispatchInsts(ThreadID tid)
 
             ++iewStats.dispLoadInsts;
 
+            // Load Value Predictor: Predict load value and speculatively execute
+            // Only handle single-destination loads (numDestRegs() == 1)
+            // Multi-destination loads (e.g., LDP, loads with writeback) are skipped
+            // because LVP can only predict one value per PC
+            if (cpu->lvp && inst->numDestRegs() == 1) {
+                PhysRegIdPtr dest_reg = inst->renamedDestIdx(0);
+                if(dest_reg->classValue() == IntRegClass) {
+                    auto prediction = inst->predictLoad(tid);
+                    LVPType classification = prediction.first;
+                    RegVal predicted_value = prediction.second;
+
+                    // For PREDICTABLE and CONSTANT loads, write predicted value
+                    // speculatively and mark register ready to enable dependent
+                    // instruction execution.
+                    if (classification == LVP_CONSTANT) {
+                        DPRINTF(IEW, "[tid:%i] LVP: Load [sn:%lli] classified as CONSTANT, "
+                                "writing predicted value 0x%x speculatively to dest reg P%i\n",
+                                tid, inst->seqNum,
+                                predicted_value, dest_reg->index());
+
+                        // Write predicted value to destination register (speculative)
+                        inst->setRegOperand(inst->staticInst.get(), 0, predicted_value);
+                        scoreboard->setReg(dest_reg);
+
+                        // Mark this load as LVP-predicted for tracking
+                        inst->setLvpPredicted(true);
+
+                        // // Print prediction info for debugging
+                        // std::cout << "LVP PREDICT: PC=" << std::hex << inst->pcState().instAddr()
+                        //           << std::dec << " [sn:" << inst->seqNum << "] "
+                        //           << inst->staticInst->disassemble(inst->pcState().instAddr())
+                        //           << " -> predicted value = " << predicted_value
+                        //           << " (dest=P" << dest_reg->index() << ")\n";
+
+                        DPRINTF(IEW, "[tid:%i] LVP: Predicted value written, scoreboard marked ready, "
+                                "dependent instructions can now execute speculatively\n", tid);
+                    }
+                }
+            }
+
             add_to_iq = true;
 
             toRename->iewInfo[tid].dispatchedToLQ++;
@@ -1006,6 +1068,8 @@ IEW::dispatchInsts(ThreadID tid)
             ldstQueue.insertStore(inst);
 
             ++iewStats.dispStoreInsts;
+
+            // Load Value Predictor: CVU removed - no store address tracking
 
             if (inst->isStoreConditional()) {
                 // Store conditionals need to be set as "canCommit()"
@@ -1206,6 +1270,9 @@ IEW::executeInsts()
                 if (inst->isDataPrefetch() || inst->isInstPrefetch()) {
                     inst->fault = NoFault;
                 }
+
+                // Load Value Predictor: CVU verification removed
+                // Constant loads are verified at writeback stage
             } else if (inst->isStore()) {
                 fault = ldstQueue.executeStore(inst);
 
@@ -1386,6 +1453,20 @@ IEW::writebackInsts()
         if (!inst->isSquashed() && inst->isExecuted() &&
                 inst->getFault() == NoFault) {
             int dependents = instQueue.wakeDependents(inst);
+
+            // if (dependents > 0) {
+            //     std::cout << "WRITEBACK: Cycle " << cpu->curCycle()
+            //               << " PC=" << std::hex << inst->pcState().instAddr() << std::dec
+            //               << " [sn:" << inst->seqNum << "] "
+            //               << inst->staticInst->disassemble(inst->pcState().instAddr())
+            //               << " waking " << dependents << " dependents\n";
+            // } else {
+            //     std::cout << "WRITEBACK: Cycle " << cpu->curCycle()
+            //               << " PC=" << std::hex << inst->pcState().instAddr() << std::dec
+            //               << " [sn:" << inst->seqNum << "] "
+            //               << inst->staticInst->disassemble(inst->pcState().instAddr())
+            //               << " waking no dependents\n";
+            // }
 
             for (int i = 0; i < inst->numDestRegs(); i++) {
                 // Mark register as ready if not pinned

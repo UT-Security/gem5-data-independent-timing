@@ -43,13 +43,13 @@ from m5.SimObject import SimObject
 
 
 class IntALU(FUDesc):
-    opList = [OpDesc(opClass="IntAlu")]
+    opList = [OpDesc(opClass="IntAlu", compSimplification=True, fastPathLat=1)]
     count = 6
 
 
 class IntMultDiv(FUDesc):
     opList = [
-        OpDesc(opClass="IntMult", opLat=3),
+        OpDesc(opClass="IntMult", opLat=3, compSimplification=True, fastPathLat=1),
         OpDesc(opClass="IntDiv", opLat=20, pipelined=False),
     ]
 

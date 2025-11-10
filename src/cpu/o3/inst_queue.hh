@@ -238,6 +238,12 @@ class InstructionQueue
     /** Wakes all dependents of a completed instruction. */
     int wakeDependents(const DynInstPtr &completed_inst);
 
+    /** Wakes only register dependents (not memory dependents).
+     * Used for LVP to wake dependents when predicted value is written
+     * at dispatch, before the load is inserted into memory dep unit.
+     */
+    int wakeRegisterDependents(const DynInstPtr &inst);
+
     /** Adds a ready memory instruction to the ready list. */
     void addReadyMemInst(const DynInstPtr &ready_inst);
 

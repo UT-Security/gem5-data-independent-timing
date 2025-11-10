@@ -51,6 +51,8 @@
 
 #include "arch/generic/pcstate.hh"
 #include "base/statistics.hh"
+#include "cpu/lvp/load_value_prediction_unit.hh"
+#include "cpu/o3/load_oracle.hh"
 #include "cpu/o3/comm.hh"
 #include "cpu/o3/commit.hh"
 #include "cpu/o3/decode.hh"
@@ -525,6 +527,18 @@ class CPU : public BaseCPU
      * is not being used.
      */
     gem5::Checker<DynInstPtr> *checker;
+
+    /** Pointer to the Load Value Predictor unit. This is a shared
+     * resource across multiple pipeline stages for predicting load
+     * values and verifying predictions.
+     */
+    LoadValuePredictionUnit *lvp;
+
+    /** Flag to enable/disable computational simplification */
+    bool enableCompSimplification;
+
+    /** Oracle for load value headroom study */
+    LoadOracle *loadOracle;
 
     /** Pointer to the system. */
     System *system;

@@ -48,6 +48,7 @@
 #include "cpu/o3/dyn_inst.hh"
 #include "cpu/o3/fu_pool.hh"
 #include "cpu/o3/limits.hh"
+#include "debug/CompSimp.hh"
 #include "debug/IQ.hh"
 #include "enums/OpClass.hh"
 #include "params/BaseO3CPU.hh"
@@ -811,17 +812,54 @@ InstructionQueue::scheduleReadyInsts()
         Cycles op_latency = Cycles(1);
         ThreadID tid = issuing_inst->threadNumber;
 
+        // Operand values for computational simplification (initialized to non-trivial defaults)
+        uint64_t op1 = 2, op2 = 3;
+
         if (op_class != No_OpClass) {
-            idx = fuPool->getUnit(op_class);
+            // Get instruction mnemonic for early validation
+            std::string instName = issuing_inst->staticInst->getName();
+
+            // DPRINTF(CompSimp, "IQ: Analyzing %s inst [%s]\n",
+            //     (op_class == IntMultOp) ? "MUL" : "ALU",
+            //     issuing_inst->staticInst->disassemble(issuing_inst->pcState().instAddr()));
+
+            // Check if instruction is supported for computational simplification
+            // and if computational simplification is enabled via CPU parameter
+            if (cpu->enableCompSimplification &&
+                fuPool->getCompSimp().isInstructionSupported(op_class, instName, issuing_inst->numSrcs())) {
+
+                // Read operand values for computational simplification analysis
+                // (isInstructionSupported already validated >= 2 source operands)
+                op1 = issuing_inst->getRegOperand(issuing_inst->staticInst.get(), 0);
+                op2 = issuing_inst->getRegOperand(issuing_inst->staticInst.get(), 1);
+
+                DPRINTF(CompSimp, "IQ: Analyzing %s inst [%s]\n",
+                    (op_class == IntMultOp) ? "MUL" : "ALU",
+                    issuing_inst->staticInst->disassemble(issuing_inst->pcState().instAddr()));
+                DPRINTF(CompSimp, "IQ: Operands = 0x%llx, 0x%llx\n",
+                        op1, op2);
+
+                // Use computational simplification module for analysis and FU allocation
+                auto result = fuPool->getCompSimp().analyzeInstruction(fuPool, op_class, instName, op1, op2);
+                idx = result.fuIndex;
+                op_latency = result.latency;
+
+                DPRINTF(CompSimp, "IQ: %s [%s] -> %s, %d cycles (FU[%d])\n",
+                        (op_class == IntMultOp) ? "MUL" : "ALU",
+                        issuing_inst->staticInst->disassemble(issuing_inst->pcState().instAddr()),
+                        result.canSimplify ? "FAST-PATH" : "NORMAL", op_latency, idx);
+            } else {
+                // Standard FU allocation for non-optimized operations
+                idx = fuPool->getUnit(op_class);
+                op_latency = fuPool->getOpLatency(op_class);
+            }
+
             if (issuing_inst->isFloating()) {
                 iqIOStats.fpAluAccesses++;
             } else if (issuing_inst->isVector()) {
                 iqIOStats.vecAluAccesses++;
             } else {
                 iqIOStats.intAluAccesses++;
-            }
-            if (idx > FUPool::NoFreeFU) {
-                op_latency = fuPool->getOpLatency(op_class);
             }
         }
 
@@ -833,10 +871,13 @@ InstructionQueue::scheduleReadyInsts()
                 i2e_info->size++;
                 instsToExecute.push_back(issuing_inst);
 
-                // Add the FU onto the list of FU's to be freed next
-                // cycle if we used one.
-                if (idx >= 0)
+                // Add the FU onto the list of FU's to be freed next cycle if we used one.
+                // Both fast-path and normal execution use physical FUs to model unit pressure.
+                if (idx >= 0) {
                     fuPool->freeUnitNextCycle(idx);
+                    // Clear computational simplification state when FU is freed
+                    fuPool->getCompSimp().clearFastPathExecution(idx);
+                }
 
                 // CPU has no capable FU for the instruction
                 // but this may be OK if the instruction gets
@@ -853,6 +894,11 @@ InstructionQueue::scheduleReadyInsts()
                 ++wbOutstanding;
                 FUCompletion *execution = new FUCompletion(issuing_inst,
                                                            idx, this);
+
+                // std::cout << "EXECUTE: Cycle " << cpu->curCycle()
+                //           << " [sn:" << issuing_inst->seqNum << "] "
+                //           << issuing_inst->staticInst->disassemble(issuing_inst->pcState().instAddr())
+                //           << " " << op_latency << "-cycle (complete at " << (cpu->curCycle() + op_latency) << ")\n";
 
                 cpu->schedule(execution,
                               cpu->clockEdge(Cycles(op_latency - 1)));
@@ -1381,6 +1427,13 @@ InstructionQueue::addToDependents(const DynInstPtr &new_inst)
                         "became ready before it reached the IQ.\n",
                         new_inst->pcState(), src_reg->index(),
                         src_reg->className());
+
+                // Debug: Check if this is due to LVP
+                // std::cout << "LVP BENEFIT: PC=" << std::hex << new_inst->pcState().instAddr()
+                //           << std::dec << " [sn:" << new_inst->seqNum << "] "
+                //           << "found src P" << src_reg->index()
+                //           << " already READY in scoreboard (likely from LVP)\n";
+
                 // Mark a register ready within the instruction.
                 new_inst->markSrcRegReady(src_reg_idx);
             }
@@ -1418,10 +1471,20 @@ InstructionQueue::addToProducers(const DynInstPtr &new_inst)
                   dest_reg->flatIndex());
         }
 
+        // Set as producer in dependency graph (for waking future dependents)
         dependGraph.setInst(dest_reg->flatIndex(), new_inst);
 
-        // Mark the scoreboard to say it's not yet ready.
-        regScoreboard[dest_reg->flatIndex()] = false;
+        // For LVP-predicted loads, keep scoreboard ready to allow immediate
+        // execution of dependent instructions already in the pipeline.
+        // For normal instructions, mark scoreboard not ready.
+        if (new_inst->isLvpPredicted()) {
+            regScoreboard[dest_reg->flatIndex()] = true;
+            // std::cout << "addToProducers: PC=" << std::hex << new_inst->pcState().instAddr()
+            //           << std::dec << " [sn:" << new_inst->seqNum << "] "
+            //           << "LVP-predicted load - KEEPING scoreboard P" << dest_reg->index() << " READY\n";
+        } else {
+            regScoreboard[dest_reg->flatIndex()] = false;
+        }
     }
 }
 

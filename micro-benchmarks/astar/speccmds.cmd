@@ -1,0 +1,3 @@
+-C /home/rgangar/Documents/gem5/cpu2006/benchspec/CPU2006/473.astar/run/run_base_ref_aarch64-nn.0000
+-o BigLakes2048.out -e BigLakes2048.err ../run_base_ref_aarch64-nn.0000/astar_base.aarch64-nn BigLakes2048.cfg
+-o rivers.out -e rivers.err ../run_base_ref_aarch64-nn.0000/astar_base.aarch64-nn rivers.cfg

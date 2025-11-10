@@ -1,0 +1,2 @@
+-C /home/rgangar/Documents/gem5/cpu2006/benchspec/CPU2006/483.xalancbmk/run/run_base_ref_aarch64-nn.0000
+-o ref.out -e ref.err ../run_base_ref_aarch64-nn.0000/Xalan_base.aarch64-nn -v t5.xml xalanc.xsl

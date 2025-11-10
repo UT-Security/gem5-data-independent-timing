@@ -1,0 +1,3 @@
+-C /home/rgangar/Documents/gem5/cpu2006/benchspec/CPU2006/456.hmmer/run/run_base_ref_aarch64-nn.0000
+-o nph3.out -e nph3.err ../run_base_ref_aarch64-nn.0000/hmmer_base.aarch64-nn nph3.hmm swiss41
+-o retro.out -e retro.err ../run_base_ref_aarch64-nn.0000/hmmer_base.aarch64-nn --fixed 0 --mean 500 --num 500000 --sd 350 --seed 0 retro.hmm

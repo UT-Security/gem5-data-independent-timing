@@ -31,6 +31,7 @@
 #include <sstream>
 
 #include "base/logging.hh"
+#include "debug/CompSimp.hh"
 
 namespace gem5
 {
@@ -43,6 +44,8 @@ FuncUnit::FuncUnit()
 {
     opLatencies.fill(0);
     pipelined.fill(false);
+    compSimplification.fill(false);
+    fastPathLatencies.fill(1);
     capabilityList.reset();
 }
 
@@ -54,6 +57,8 @@ FuncUnit::FuncUnit(const FuncUnit &fu)
     for (int i = 0; i < Num_OpClasses; ++i) {
         opLatencies[i] = fu.opLatencies[i];
         pipelined[i] = fu.pipelined[i];
+        compSimplification[i] = fu.compSimplification[i];
+        fastPathLatencies[i] = fu.fastPathLatencies[i];
     }
 
     capabilityList = fu.capabilityList;
@@ -70,6 +75,25 @@ FuncUnit::addCapability(OpClass cap, unsigned oplat, bool pipeline)
 
     opLatencies[cap] = oplat;
     pipelined[cap] = pipeline;
+    compSimplification[cap] = false;
+    fastPathLatencies[cap] = 1;
+}
+
+void
+FuncUnit::addCapability(OpClass cap, unsigned oplat, bool pipeline,
+                       bool comp_simp, unsigned fast_lat)
+{
+    if (oplat == 0)
+        panic("FuncUnit:  you don't really want a zero-cycle latency do you?");
+    if (fast_lat == 0)
+        panic("FuncUnit:  fast path latency cannot be zero");
+
+    capabilityList.set(cap);
+
+    opLatencies[cap] = oplat;
+    pipelined[cap] = pipeline;
+    compSimplification[cap] = comp_simp;
+    fastPathLatencies[cap] = fast_lat;
 }
 
 bool
@@ -94,6 +118,18 @@ bool
 FuncUnit::isPipelined(OpClass capability)
 {
     return pipelined[capability];
+}
+
+bool
+FuncUnit::supportsCompSimplification(OpClass capability)
+{
+    return compSimplification[capability];
+}
+
+unsigned
+FuncUnit::getFastPathLatency(OpClass capability)
+{
+    return fastPathLatencies[capability];
 }
 
 } // namespace gem5

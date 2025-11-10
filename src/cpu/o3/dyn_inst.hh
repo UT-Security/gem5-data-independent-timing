@@ -189,6 +189,7 @@ class DynInst : public ExecContext, public RefCounted
         HtmFromTransaction,
         NoCapableFU,           /// Processor does not have capability to
                                /// execute the instruction
+        LvpPredicted,          /// Load value was predicted by LVP
         MaxFlags
     };
 
@@ -237,6 +238,16 @@ class DynInst : public ExecContext, public RefCounted
 
     // Whether or not the source register is ready, one bit per register.
     uint8_t *_readySrcIdx;
+
+    /** Load Value Predictor fields */
+    /** The classification of this load by the LCT */
+    LVPType _classification;
+    /** The predicted value from the LVPT */
+    RegVal _predictedVal;
+    /** Whether the prediction was correct (verified after load completes) */
+    bool _predictionCorrect;
+    /** Whether this load will execute speculatively */
+    bool _specExecOnLoad;
 
   public:
     size_t numSrcs() const { return _numSrcs; }
@@ -379,6 +390,10 @@ class DynInst : public ExecContext, public RefCounted
     /** Whether or not the memory operation is done. */
     bool memOpDone() const { return instFlags[MemOpDone]; }
     void memOpDone(bool f) { instFlags[MemOpDone] = f; }
+
+    /** Whether or not this load was predicted by LVP. */
+    bool isLvpPredicted() const { return instFlags[LvpPredicted]; }
+    void setLvpPredicted(bool f) { instFlags[LvpPredicted] = f; }
 
     bool notAnInst() const { return instFlags[NotAnInst]; }
     void setNotAnInst() { instFlags[NotAnInst] = true; }
@@ -637,6 +652,28 @@ class DynInst : public ExecContext, public RefCounted
             htmDepth = 0;
         }
     }
+
+    /** Load Value Predictor methods */
+    /** Predict load value using LVP */
+    std::pair<LVPType, RegVal> predictLoad(ThreadID tid);
+
+    /** Check if this load is predicted as constant */
+    bool isConstantLoad() const {
+        return _classification == LVP_CONSTANT;
+    }
+
+    /** Check if this load is predicted as predictable */
+    bool isPredictableLoad() const {
+        return _classification == LVP_PREDICTABLE;
+    }
+
+    /** Get the LVP classification for this load */
+    LVPType getClassification() const {
+        return _classification;
+    }
+
+    /** Verify prediction and update LVP tables */
+    bool verifyPrediction(ThreadID tid, RegVal actual_val);
 
     /** Temporarily sets this instruction as a serialize before instruction. */
     void setSerializeBefore() { status.set(SerializeBefore); }

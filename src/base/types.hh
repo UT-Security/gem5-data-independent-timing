@@ -53,6 +53,16 @@ namespace gem5
 typedef int64_t Counter;
 
 /**
+ * Load Value Predictor type definitions
+ */
+#define LVP_CONSTANT             3
+#define LVP_PREDICTABLE          2
+#define LVP_WEAK_UNPREDICTABLE   1
+#define LVP_STRONG_UNPREDICTABLE 0
+
+typedef uint8_t LVPType;
+
+/**
  * Tick count type.
  */
 typedef uint64_t Tick;

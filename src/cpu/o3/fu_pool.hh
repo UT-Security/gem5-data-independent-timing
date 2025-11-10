@@ -47,6 +47,8 @@
 #include <string>
 #include <vector>
 
+#include "base/statistics.hh"
+#include "cpu/o3/comp_simp.hh"
 #include "cpu/op_class.hh"
 #include "params/FUPool.hh"
 #include "sim/sim_object.hh"
@@ -131,6 +133,9 @@ class FUPool : public SimObject
     /** Functional units. */
     std::vector<FuncUnit *> funcUnits;
 
+    /** Computational simplification optimization module */
+    ComputationalSimplification compSimp;
+
   public:
     typedef FUPoolParams Params;
     /** Constructs a FU pool. */
@@ -196,11 +201,22 @@ class FUPool : public SimObject
         return pipelined[capability];
     }
 
+
+    /** Get computational simplification module */
+    ComputationalSimplification& getCompSimp() { return compSimp; }
+
+    /** Check if computational simplification is supported for the capability. */
+    bool supportsCompSimplification(OpClass capability);
+
+    /** Returns fast-path latency if computational simplification is supported. */
+    Cycles getFastPathLatency(OpClass capability);
+
     /** Have all the FUs drained? */
     bool isDrained() const;
 
     /** Takes over from another CPU's thread. */
     void takeOverFrom() {};
+
 };
 
 } // namespace o3

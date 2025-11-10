@@ -1,0 +1,2 @@
+-C /home/rgangar/Documents/gem5/cpu2006/benchspec/CPU2006/462.libquantum/run/run_base_ref_aarch64-nn.0000
+-o ref.out -e ref.err ../run_base_ref_aarch64-nn.0000/libquantum_base.aarch64-nn 1397 8

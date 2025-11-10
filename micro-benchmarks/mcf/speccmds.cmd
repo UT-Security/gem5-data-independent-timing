@@ -1,0 +1,2 @@
+-C /home/rgangar/Documents/gem5/cpu2006/benchspec/CPU2006/429.mcf/run/run_base_ref_aarch64-nn.0000
+-o inp.out -e inp.err ../run_base_ref_aarch64-nn.0000/mcf_base.aarch64-nn inp.in

@@ -72,6 +72,7 @@ class ArmDefaultSERelease(ArmRelease):
         "FEAT_PAuth",
         # Armv8.4
         "FEAT_FLAGM",
+        "FEAT_DIT",
         # Armv8.5
         "FEAT_FLAGM2",
         # Armv9.2

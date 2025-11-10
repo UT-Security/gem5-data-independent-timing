@@ -48,6 +48,7 @@
 #include "base/compiler.hh"
 #include "base/loader/symtab.hh"
 #include "base/logging.hh"
+#include "base/output.hh"
 #include "cpu/base.hh"
 #include "cpu/checker/cpu.hh"
 #include "cpu/exetrace.hh"
@@ -130,6 +131,42 @@ Commit::Commit(CPU *_cpu, const BaseO3CPUParams &params)
         htmStops[tid] = 0;
     }
     interrupt = NoFault;
+
+    // Initialize instruction logging
+    initInstructionLogging();
+}
+
+Commit::~Commit()
+{
+    std::cout << "DEBUG: Commit destructor called with " << instructionCounts.size() << " unique instructions" << std::endl;
+
+    // Write final instruction counts to file
+    if (!instructionCounts.empty()) {
+        std::string filename = "instruction_counts_" + name() + ".txt";
+        std::cout << "DEBUG: Creating file: " << filename << std::endl;
+        std::ofstream outFile(filename);
+
+        if (outFile.is_open()) {
+            std::cout << "DEBUG: File opened successfully, writing counts..." << std::endl;
+            outFile << "=== Final Instruction Counts ===" << std::endl;
+            outFile << "Total unique instructions: " << instructionCounts.size() << std::endl;
+            outFile << std::endl;
+
+            // Sort instructions by count (descending order)
+            std::vector<std::pair<std::string, uint64_t>> sorted_counts(
+                instructionCounts.begin(), instructionCounts.end());
+            std::sort(sorted_counts.begin(), sorted_counts.end(),
+                [](const auto& a, const auto& b) { return a.second > b.second; });
+
+            for (const auto& pair : sorted_counts) {
+                outFile << pair.first << ": " << pair.second << std::endl;
+            }
+            outFile.close();
+            std::cout << "DEBUG: File written and closed successfully!" << std::endl;
+        } else {
+            warn("Failed to create instruction counts file: %s", filename);
+        }
+    }
 }
 
 std::string Commit::name() const { return cpu->name() + ".commit"; }
@@ -964,6 +1001,27 @@ Commit::commitInsts()
                 cpu->commitStats[tid]
                     ->committedInstType[head_inst->opClass()]++;
                 stats.committedInstType[tid][head_inst->opClass()]++;
+
+                // Dynamic instruction logging - track SPECIFIC instructions only
+                std::string instName = head_inst->staticInst->getName();
+
+                // Define list of instructions to track (easily extensible)
+                static const std::set<std::string> trackedInstructions = {
+                    "add", "subs"
+                };
+
+                // Only process instructions in our tracking list
+                if (trackedInstructions.find(instName) != trackedInstructions.end()) {
+                    instructionCounts[instName]++;
+                }
+                totalCommittedInstructions++;
+
+                // Periodic file write every 1 million instructions (overwrites existing file)
+                if (totalCommittedInstructions % 1000000 == 0) {
+                    writeInstructionCounts();
+                }
+
+
                 ppCommit->notify(head_inst);
 
                 // hardware transactional memory
@@ -1496,6 +1554,49 @@ Commit::oldestReady()
         return InvalidThreadID;
     }
 }
+
+void
+Commit::initInstructionLogging()
+{
+    // Initialize instruction logging - file will be written periodically
+    instructionCounts.clear();
+    totalCommittedInstructions = 0;
+}
+
+void
+Commit::writeInstructionCounts()
+{
+    if (!instructionCounts.empty()) {
+        std::string filename = "instruction_counts_" + name() + ".txt";
+        OutputStream *file = simout.create(filename);
+        std::ostream *outFile = file->stream();
+
+        if (outFile) {
+            *outFile << "=== Instruction Counts (Live Update) ===" << std::endl;
+            *outFile << "Total unique instructions: " << instructionCounts.size() << std::endl;
+
+            // Calculate total instructions
+            uint64_t total_instructions = 0;
+            for (const auto& pair : instructionCounts) {
+                total_instructions += pair.second;
+            }
+            *outFile << "Total instructions executed: " << total_instructions << std::endl;
+            *outFile << std::endl;
+
+            // Sort instructions by count (descending order)
+            std::vector<std::pair<std::string, uint64_t>> sorted_counts(
+                instructionCounts.begin(), instructionCounts.end());
+            std::sort(sorted_counts.begin(), sorted_counts.end(),
+                [](const auto& a, const auto& b) { return a.second > b.second; });
+
+            for (const auto& pair : sorted_counts) {
+                *outFile << pair.first << ": " << pair.second << std::endl;
+            }
+            simout.close(file);
+        }
+    }
+}
+
 
 } // namespace o3
 } // namespace gem5

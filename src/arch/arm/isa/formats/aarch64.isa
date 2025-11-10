@@ -457,6 +457,10 @@ namespace Aarch64
                             // SP
                             return new MsrImm64(
                                 machInst, MISCREG_SPSEL, crm);
+                          case 0x1a:
+                            // DIT (op1=3, op2=2)
+                            return new MsrImm64(
+                                machInst, MISCREG_DIT, crm);
                           case 0x1b:
                             // SVE SVCR - SMSTART/SMSTOP
                             return decodeSmeMgmt(machInst);

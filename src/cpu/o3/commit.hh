@@ -42,6 +42,8 @@
 #define __CPU_O3_COMMIT_HH__
 
 #include <queue>
+#include <fstream>
+#include <map>
 
 #include "base/statistics.hh"
 #include "cpu/exetrace.hh"
@@ -133,6 +135,7 @@ class Commit
   public:
     /** Construct a Commit with the given parameters. */
     Commit(CPU *_cpu, const BaseO3CPUParams &params);
+    ~Commit();
 
     /** Returns the name of the Commit. */
     std::string name() const;
@@ -488,9 +491,22 @@ class Commit
         /** Committed instructions by instruction type (OpClass) */
         statistics::Vector2d committedInstType;
 
+
         /** Number of cycles where the commit bandwidth limit is reached. */
         statistics::Scalar commitEligibleSamples;
     } stats;
+
+    /** Custom instruction logging for specific tracked instructions only */
+    std::map<std::string, uint64_t> instructionCounts;
+
+    /** Counter for periodic file writes (every 1 million instructions) */
+    uint64_t totalCommittedInstructions;
+
+    /** Initialize instruction logging */
+    void initInstructionLogging();
+
+    /** Write instruction counts to file (overwrites existing file) */
+    void writeInstructionCounts();
 };
 
 } // namespace o3

@@ -138,6 +138,34 @@ CPU::CPU(const BaseO3CPUParams &params)
         checker = NULL;
     }
 
+    // Initialize the Load Value Predictor
+    lvp = params.loadValPred;
+    if (lvp) {
+        DPRINTF(O3CPU, "Load Value Predictor initialized\n");
+    }
+
+    // Initialize computational simplification flag
+    enableCompSimplification = params.enableCompSimplification;
+    DPRINTF(O3CPU, "Computational Simplification %s\n",
+            enableCompSimplification ? "enabled" : "disabled");
+
+    // Initialize Load Oracle for headroom study (only when LVP is enabled)
+    if (params.loadValPred) {
+        loadOracle = new LoadOracle();
+        DPRINTF(O3CPU, "Load Oracle initialized for headroom study\n");
+    } else {
+        loadOracle = nullptr;
+    }
+
+    // Register callback to print oracle stats at simulation exit
+    registerExitCallback([this]() {
+        if (loadOracle) {
+            loadOracle->printStats();
+            delete loadOracle;
+            loadOracle = nullptr;
+        }
+    });
+
     if (!FullSystem) {
         thread.resize(numThreads);
         tids.resize(numThreads);

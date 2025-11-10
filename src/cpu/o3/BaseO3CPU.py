@@ -43,6 +43,7 @@ from m5.objects.BaseCPU import BaseCPU
 from m5.objects.BranchPredictor import *
 from m5.objects.FUPool import *
 from m5.objects.IndexingPolicies import *
+from m5.objects.LoadValuePredictionUnit import *
 from m5.objects.ReplacementPolicies import *
 from m5.params import *
 from m5.proxy import *
@@ -205,6 +206,15 @@ class BaseO3CPU(BaseCPU):
     branchPred = Param.BranchPredictor(
         TournamentBP(numThreads=Parent.numThreads), "Branch Predictor"
     )
+
+    loadValPred = Param.LoadValuePredictionUnit(
+        NULL, "Load Value Predictor"
+    )
+
+    enableCompSimplification = Param.Bool(
+        True, "Enable computational simplification optimizations"
+    )
+
     needsTSO = Param.Bool(False, "Enable TSO Memory model")
 
     recvRespThrottling = Param.Bool(

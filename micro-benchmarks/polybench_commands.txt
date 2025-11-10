@@ -1,0 +1,2 @@
+cd polybench_datamining/ && ../../build/ARM/gem5.opt --outdir=correlation_lvp ../../custom-configs/se_custom_arm_binary.py --input-bin "correlation_time"
+cd polybench_datamining/ && ../../build/ARM/gem5.opt --outdir=covariance_lvp ../../custom-configs/se_custom_arm_binary.py --input-bin "covariance_time

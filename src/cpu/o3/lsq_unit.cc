@@ -1096,7 +1096,58 @@ LSQUnit::writeback(const DynInstPtr &inst, PacketPtr pkt)
 
         if (inst->fault == NoFault) {
             // Complete access to copy data to proper place.
+            // NOTE: completeAcc() writes the actual loaded value to the destination
+            // register, overwriting any speculatively written predicted value.
+            // - If prediction was CORRECT: overwrites with same value (no harm)
+            // - If prediction was WRONG: overwrites with correct value, then we squash
             inst->completeAcc(pkt);
+
+            // Load Value Predictor: Verify prediction on load completion
+            // Only track single-destination integer loads (scalar values)
+            // Multi-destination loads are filtered out at dispatch
+            if (cpu->lvp && inst->isLoad() && inst->numDestRegs() == 1) {
+                PhysRegIdPtr dest_reg = inst->renamedDestIdx(0);
+
+                // Oracle tracking for headroom study - track all register classes
+                if (cpu->loadOracle) {
+                    RegVal actual_value = 0;
+                    if(dest_reg->classValue() == IntRegClass) {
+                        actual_value = cpu->getReg(dest_reg, inst->threadNumber);
+                    }
+
+                    cpu->loadOracle->recordLoad(inst->pcState().instAddr(), actual_value,
+                                                dest_reg->classValue());
+                }
+
+                // Only handle integer register loads for LVP
+                if (dest_reg->classValue() == IntRegClass) {
+                    RegVal actual_value = cpu->getReg(dest_reg, inst->threadNumber);
+
+                    // ALWAYS verify ALL loads so LCT can learn and update counters
+                    bool correct = inst->verifyPrediction(inst->threadNumber, actual_value);
+
+                    // Clear the LvpPredicted flag now that load has actually executed
+                    // and been verified (no longer speculative)
+                    inst->setLvpPredicted(false);
+
+                    // Squash on misprediction for constant loads only
+                    // This removes all younger instructions that executed with wrong value
+                    if (!correct && inst->isConstantLoad()) {
+                        DPRINTF(LSQUnit, "LVP: Load [sn:%lli] value misprediction, "
+                                "squashing younger instructions that used wrong value\n",
+                                inst->seqNum);
+                        iewStage->squashDueToLoadValueMispred(inst, inst->threadNumber);
+                        cpu->lvp->recordSquash();
+                    } else if (correct && inst->isConstantLoad()) {
+                        DPRINTF(LSQUnit, "LVP: Load [sn:%lli] prediction CORRECT, "
+                                "dependent instructions already executed with correct value\n",
+                                inst->seqNum);
+                    } else {
+                        DPRINTF(LSQUnit, "LVP: Load [sn:%lli] classification=%d prediction %s\n",
+                                inst->seqNum, inst->getClassification(), correct ? "correct" : "incorrect");
+                    }
+                }
+            }
         } else {
             // If the instruction has an outstanding fault, we cannot complete
             // the access as this discards the current fault.

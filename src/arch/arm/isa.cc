@@ -584,6 +584,10 @@ ISA::readMiscReg(RegIndex idx)
         {
             return miscRegs[MISCREG_CPSR] & 0x800000;
         }
+      case MISCREG_DIT:
+        {
+            return miscRegs[MISCREG_CPSR] & 0x1000000;
+        }
       case MISCREG_L2CTLR:
         {
             // mostly unimplemented, just set NumCPUs field from sim and return
@@ -1308,6 +1312,14 @@ ISA::setMiscReg(RegIndex idx, RegVal val)
 
                 CPSR cpsr = miscRegs[MISCREG_CPSR];
                 cpsr.uao = (uint8_t) ((CPSR) newVal).uao;
+                newVal = cpsr;
+                idx = MISCREG_CPSR;
+            }
+            break;
+          case MISCREG_DIT:
+            {
+                CPSR cpsr = miscRegs[MISCREG_CPSR];
+                cpsr.dit = (uint8_t) ((CPSR) newVal).dit;
                 newVal = cpsr;
                 idx = MISCREG_CPSR;
             }

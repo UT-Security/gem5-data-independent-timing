@@ -1,0 +1,3 @@
+-C /home/rgangar/Documents/gem5/cpu2006/benchspec/CPU2006/450.soplex/run/run_base_ref_aarch64-nn.0000
+-o pds-50.mps.out -e pds-50.mps.stderr ../run_base_ref_aarch64-nn.0000/soplex_base.aarch64-nn -s1 -e -m45000 pds-50.mps
+-o ref.out -e ref.stderr ../run_base_ref_aarch64-nn.0000/soplex_base.aarch64-nn -m3500 ref.mps

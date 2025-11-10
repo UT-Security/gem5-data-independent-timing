@@ -71,10 +71,13 @@ class OpDesc : public SimObject
     OpClass opClass;
     Cycles opLat;
     bool pipelined;
+    bool compSimplification;
+    Cycles fastPathLat;
 
     OpDesc(const OpDescParams &p)
         : SimObject(p), opClass(p.opClass), opLat(p.opLat),
-          pipelined(p.pipelined) {};
+          pipelined(p.pipelined), compSimplification(p.compSimplification),
+          fastPathLat(p.fastPathLat) {};
 };
 
 class FUDesc : public SimObject
@@ -101,6 +104,8 @@ class FuncUnit
   private:
     std::array<unsigned, Num_OpClasses> opLatencies;
     std::array<bool, Num_OpClasses> pipelined;
+    std::array<bool, Num_OpClasses> compSimplification;
+    std::array<unsigned, Num_OpClasses> fastPathLatencies;
     std::bitset<Num_OpClasses> capabilityList;
 
   public:
@@ -110,12 +115,20 @@ class FuncUnit
     std::string name;
 
     void addCapability(OpClass cap, unsigned oplat, bool pipelined);
+    void addCapability(OpClass cap, unsigned oplat, bool pipelined,
+                      bool comp_simp, unsigned fast_lat);
 
     bool provides(OpClass capability);
     std::bitset<Num_OpClasses> capabilities();
 
     unsigned &opLatency(OpClass capability);
     bool isPipelined(OpClass capability);
+
+    /** Check if computational simplification is supported for this capability */
+    bool supportsCompSimplification(OpClass capability);
+
+    /** Get fast-path latency for this capability */
+    unsigned getFastPathLatency(OpClass capability);
 };
 
 } // namespace gem5

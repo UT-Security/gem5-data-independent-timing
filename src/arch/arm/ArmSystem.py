@@ -97,6 +97,7 @@ class ArmExtension(ScopedEnum):
         "FEAT_TLBIOS",
         "FEAT_TLBIRANGE",
         "FEAT_FLAGM",
+        "FEAT_DIT",
         "FEAT_IDST",
         "FEAT_TTST",
         "FEAT_FRINTTS",  # Optional in Armv8.4
@@ -209,6 +210,7 @@ class ArmDefaultRelease(Armv8):
         "FEAT_TLBIOS",
         "FEAT_TLBIRANGE",
         "FEAT_FLAGM",
+        "FEAT_DIT",
         "FEAT_IDST",
         "FEAT_TTST",
         # Armv8.5
@@ -260,6 +262,7 @@ class Armv84(Armv83):
         "FEAT_TLBIOS",
         "FEAT_TLBIRANGE",
         "FEAT_FLAGM",
+        "FEAT_DIT",
         "FEAT_IDST",
         "FEAT_TTST",
         "FEAT_FRINTTS",

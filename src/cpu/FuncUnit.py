@@ -134,6 +134,14 @@ class OpDesc(SimObject):
         "set to true when the functional unit for"
         "this op is fully pipelined. False means not pipelined at all.",
     )
+    compSimplification = Param.Bool(
+        False,
+        "enable computational simplification for trivial operands"
+    )
+    fastPathLat = Param.Cycles(
+        1,
+        "latency for fast path execution with trivial operands"
+    )
 
 
 class FUDesc(SimObject):

@@ -1,0 +1,463 @@
+================================================================================
+                    LOAD VALUE PREDICTOR (LVP) FLOW DOCUMENTATION
+================================================================================
+
+This document describes the complete flow of a load instruction through the
+Load Value Predictor (LVP) in gem5's O3 CPU model.
+
+================================================================================
+OVERVIEW OF LVP COMPONENTS
+================================================================================
+
+1. Load Classification Table (LCT)
+   - Files: src/cpu/lvp/load_classification_table.{cc,hh}
+   - Purpose: Classifies loads by PC using saturating counters
+   - Returns: LVPType (UNPREDICTABLE, PREDICTABLE, or CONSTANT)
+   - Like: Branch predictor (2-bit saturating counters)
+
+2. Load Value Prediction Table (LVPT)
+   - Files: src/cpu/lvp/load_value_prediction_table.{cc,hh}
+   - Purpose: Stores predicted values for loads
+   - Returns: RegVal (actual predicted value, e.g., 49, 4096)
+   - Like: Branch Target Buffer (tag-indexed value storage)
+
+3. Constant Verification Unit (CVU)
+   - Files: src/cpu/lvp/constant_verification_unit.{cc,hh}
+   - Purpose: Tracks constant loads in a CAM, invalidates on store conflicts
+   - Structure: Fully-associative CAM storing (PC, load_addr, LVPT_index)
+
+4. Load Value Prediction Unit (LVP)
+   - Files: src/cpu/lvp/load_value_prediction_unit.{cc,hh}
+   - Purpose: Top-level coordinator that interfaces with all components
+   - Provides: Main API for CPU to interact with predictor
+
+================================================================================
+STAGE 1: DISPATCH (IEW - INSERT TO LSQ)
+================================================================================
+
+File: src/cpu/o3/iew.cc
+Function: IEW::dispatchInsts()
+Line: ~995-1016
+
+FLOW:
+-----
+1. Load instruction dispatched to IEW stage
+   iew.cc:995  ldstQueue.insertLoad(inst)
+
+2. Make load value prediction
+   iew.cc:1001 inst->predictLoad(tid)
+               ↓
+
+3. Call DynInst prediction wrapper
+   dyn_inst.cc:459  DynInst::predictLoad(ThreadID tid)
+   dyn_inst.cc:462      cpu->lvp->predictLoad(tid, pcState().instAddr())
+                        ↓
+
+4. LVP coordinator makes prediction
+   load_value_prediction_unit.cc:131  LoadValuePredictionUnit::predictLoad()
+   load_value_prediction_unit.cc:136      result = this->lookup(tid, pc)
+                                          ↓
+
+5. Internal LVP lookup (consults LCT and LVPT)
+   load_value_prediction_unit.cc:64  LoadValuePredictionUnit::lookup()
+
+   Step 5a: Query LVPT for predicted value
+   load_value_prediction_unit.cc:68
+       lvptResult = loadValuePredictionTable->lookup(tid, inst_addr, &lvptResultValid)
+                    ↓
+       load_value_prediction_table.cc:104  LoadValuePredictionTable::lookup()
+       load_value_prediction_table.cc:111      if (valid(instPC, tid))
+                                                   ↓
+       load_value_prediction_table.cc:80   LoadValuePredictionTable::valid()
+           - Calculates index from PC: getIndex(instPC, tid)
+           - Calculates tag from PC: getTag(instPC)
+           - Checks: entry valid && tid matches && tag matches
+           - Returns: true if all match, false otherwise
+
+       If valid:
+           - Returns predicted value (e.g., 49, 4096)
+           - Sets lvptResultValid = true
+       If invalid:
+           - Returns 0
+           - Sets lvptResultValid = false
+
+   Step 5b: Query LCT for load classification
+   load_value_prediction_unit.cc:72
+       lctResult = loadClassificationTable->lookup(tid, inst_addr)
+                   ↓
+       load_classification_table.cc:70  LoadClassificationTable::lookup()
+           - Calculates index from PC: getLocalIndex(inst_addr)
+           - Checks thread ID matches
+           - Reads counter value: localCtrs[local_predictor_idx]
+           - Returns classification based on counter:
+               * count == 0             → LVP_STRONG_UNPREDICTABLE
+               * count MSB == 0         → LVP_WEAK_UNPREDICTABLE
+               * count MSB == 1, < max  → LVP_PREDICTABLE
+               * count == saturated     → LVP_CONSTANT
+
+   Step 5c: Determine if prediction can be made
+   load_value_prediction_unit.cc:76-83
+       if (lvptResultValid && (lctResult == LVP_PREDICTABLE || lctResult == LVP_CONSTANT)):
+           - Return classification and predicted value
+       else:
+           - Return LVP_STRONG_UNPREDICTABLE (no prediction)
+
+   Step 5d: Update statistics
+   load_value_prediction_unit.cc:94-97
+       if (lctResult == LVP_CONSTANT):
+           lvpStats.numConstLoads++
+       else if (lctResult == LVP_PREDICTABLE):
+           lvpStats.numPredictableLoads++
+
+6. Back in IEW: Tag destination register if predicted
+   iew.cc:1006  if (classification == LVP_CONSTANT || classification == LVP_PREDICTABLE)
+   iew.cc:1009      inst->tagLVPDestReg(0)
+                    - Marks destination register as having predicted value
+                    - Allows dependent instructions to issue early!
+
+RESULT: Load has been predicted, dependent instructions can now issue
+
+================================================================================
+STAGE 2: EXECUTE (IEW - CALCULATE ADDRESS & SEND MEMORY REQUEST)
+================================================================================
+
+File: src/cpu/o3/iew.cc
+Function: IEW::executeInsts()
+Line: ~1218-1246
+
+FLOW:
+-----
+1. Load instruction ready to execute
+   iew.cc:1218  if (inst->isLoad())
+   iew.cc:1221      fault = ldstQueue.executeLoad(inst)
+                    ↓
+
+2. LSQ executes load
+   lsq_unit.cc:594  LSQUnit::executeLoad(inst)
+   lsq_unit.cc:609      load_fault = inst->initiateAcc()
+                        - Calculates effective address (effAddr)
+                        - Sends memory request to cache hierarchy
+                        - Request is ASYNCHRONOUS (writeback happens later)
+
+3. For CONSTANT loads: Verify in CVU after execute
+   iew.cc:1239  if (cpu->lvp && inst->isConstantLoad() && fault == NoFault)
+   iew.cc:1243      inst->verifyConstLoad(inst->threadNumber)
+                    ↓
+   dyn_inst.cc:470  DynInst::verifyConstLoad()
+   dyn_inst.cc:474      cpu->lvp->processLoadAddress(tid, PC, effAddr)
+                        ↓
+   load_value_prediction_unit.cc:182  LoadValuePredictionUnit::processLoadAddress()
+       - Gets LVPT index: lvpt_index = loadValuePredictionTable->getIndex(pc, tid)
+       - Checks CVU: constantVerificationUnit->processLoadAddress(pc, lvpt_index, tid)
+                     ↓
+       constant_verification_unit.cc:42  ConstantVerificationUnit::processLoadAddress()
+           - Searches CVU CAM for entry matching (PC, LVPT_index)
+           - Iterates through CAM entries:
+               for each entry:
+                   if (entry.pc == pc && entry.lvpt_index == lvptIndex):
+                       HIT: Entry found, constant load verified
+                       → Updates access time for LRU
+                       → _numConstantHits++
+                       → return true
+
+               NOT FOUND:
+                   MISS: Constant load invalidated (no longer constant)
+                   → _numConstantMiss++
+                   → Call LCT to demote: loadClassificationTable->update(tid, pc, LVP_CONSTANT, false)
+                   → return false
+
+RESULT: Load executing, memory request sent. Constant loads verified in CVU.
+
+================================================================================
+STAGE 3: WRITEBACK (LSQ - DATA RETURNS FROM MEMORY)
+================================================================================
+
+File: src/cpu/o3/lsq_unit.cc
+Function: LSQUnit::writeback()
+Line: ~1083-1125
+
+FLOW:
+-----
+1. Memory data returns from cache
+   lsq_unit.cc:1083  LSQUnit::writeback(inst, pkt)
+                     - Called when memory response arrives
+
+2. Complete memory access
+   lsq_unit.cc:1099  inst->completeAcc(pkt)
+                     - Writes data to destination register
+
+3. Read actual loaded value
+   lsq_unit.cc:1108  RegVal actual_value = cpu->getReg(dest_reg, inst->threadNumber)
+
+4. Verify prediction for ALL loads
+   lsq_unit.cc:1116  inst->verifyPrediction(inst->threadNumber, actual_value)
+                     ↓
+   dyn_inst.cc:478   DynInst::verifyPrediction(tid, actual_val)
+   dyn_inst.cc:482       _predictionCorrect = (_predictedVal == actual_val)
+   dyn_inst.cc:486       cpu->lvp->verifyPrediction(tid, PC, effAddr,
+                                                     actual_val, predicted_val,
+                                                     classification)
+                         ↓
+   load_value_prediction_unit.cc:101  LoadValuePredictionUnit::verifyPrediction()
+
+   Step 4a: Update predictable load statistics
+   load_value_prediction_unit.cc:112-117
+       if (predicted_val != correct_val && classification == LVP_PREDICTABLE):
+           lvpStats.numPredictableIncorrect++
+       else if (predicted_val == correct_val && classification == LVP_PREDICTABLE):
+           lvpStats.numPredictableCorrect++
+
+   Step 4b: Update LVPT with actual value (for future predictions)
+   load_value_prediction_unit.cc:119
+       loadValuePredictionTable->update(pc, correct_val, tid)
+       ↓
+       load_value_prediction_table.cc:125  LoadValuePredictionTable::update()
+           - Calculates index: LVPT_idx = getIndex(instPC, tid)
+           - Updates entry:
+               * LVPT[LVPT_idx].tid = tid
+               * LVPT[LVPT_idx].valid = true
+               * LVPT[LVPT_idx].target = correct_val  (store actual value!)
+               * LVPT[LVPT_idx].tag = getTag(instPC)
+
+   Step 4c: Update LCT counters (if not already constant)
+   load_value_prediction_unit.cc:120-128
+       if (classification != LVP_CONSTANT):
+           result = loadClassificationTable->update(tid, pc, classification,
+                                                    predicted_val == correct_val)
+           ↓
+           load_classification_table.cc:90  LoadClassificationTable::update()
+               - Calculates index: local_predictor_idx = getLocalIndex(inst_addr)
+               - Checks thread ID matches
+
+               if (prediction_correct):
+                   localCtrs[local_predictor_idx]++     (increment counter)
+               else:
+                   if (prediction == LVP_CONSTANT && invalidateConstToZero):
+                       resetCtr(local_predictor_idx)    (reset to 0)
+                   else:
+                       localCtrs[local_predictor_idx]-- (decrement counter)
+
+               - Returns new classification based on updated counter
+
+   Step 4d: If load promoted to CONSTANT, add to CVU
+   load_value_prediction_unit.cc:122-127
+       if (result == LVP_CONSTANT):
+           constantVerificationUnit->updateConstLoad(pc, load_address,
+                                                     lvpt_index, tid)
+           ↓
+           constant_verification_unit.cc:63  ConstantVerificationUnit::updateConstLoad()
+               - Creates new CAM entry:
+                   * entry.pc = pc
+                   * entry.lvpt_index = lvptIndex
+                   * entry.load_address = address
+                   * entry.entry = current_time
+                   * entry.access = current_time
+
+               if (CAM is full):
+                   replaceBlock(entry, tid)  (evict entry per replacement policy)
+               else:
+                   _cvuCAM[tid%64].push_back(entry)
+
+5. Remove LVP tag from destination register (if was predicted)
+   lsq_unit.cc:1121  if (inst->isConstantLoad() || inst->isPredictableLoad())
+   lsq_unit.cc:1122      inst->removeLVPTag(0)
+
+RESULT: Prediction verified, LVPT/LCT/CVU updated for future predictions
+
+================================================================================
+STAGE 4: COMMIT (COMMIT STAGE)
+================================================================================
+
+File: src/cpu/o3/commit.cc
+Function: Commit::commitInsts()
+
+FLOW:
+-----
+1. Load instruction commits normally
+   - No special LVP handling in commit stage
+   - Instruction just commits like any other instruction
+
+RESULT: Load instruction retired
+
+================================================================================
+STORE INSTRUCTION FLOW (CVU INVALIDATION)
+================================================================================
+
+File: src/cpu/o3/iew.cc, src/cpu/o3/dyn_inst.cc
+Lines: iew.cc:1033-1037
+
+FLOW:
+-----
+1. Store dispatched with valid effective address
+   iew.cc:1033  if (cpu->lvp && inst->effAddrValid())
+   iew.cc:1034      inst->lvpStoreAddressLookup()
+                    ↓
+   dyn_inst.cc:494  DynInst::lvpStoreAddressLookup()
+   dyn_inst.cc:499      cpu->lvp->processStoreAddress(threadNumber, effAddr)
+                        ↓
+   load_value_prediction_unit.cc:103  LoadValuePredictionUnit::processStoreAddress()
+       constantVerificationUnit->processStoreAddress(tid, address)
+       ↓
+       constant_verification_unit.cc:19  ConstantVerificationUnit::processStoreAddress()
+           - Searches CVU CAM by load_address only (not PC!)
+           - For each entry in CAM:
+               if (entry.load_address == store_address):
+                   - MATCH: Store conflicts with constant load
+                   - Erase entry from CAM (invalidate constant load)
+                   - _numStoreHits++
+                   - Load will be demoted when it executes next
+
+           - If no match: _numStoreMiss++
+
+RESULT: Conflicting constant loads invalidated from CVU
+
+================================================================================
+KEY DATA STRUCTURES
+================================================================================
+
+1. LVPT Entry (load_value_prediction_table.hh:34-51)
+   struct LVPTEntry {
+       Addr tag;           // Upper bits of PC for tag matching
+       RegVal target;      // Predicted load value (e.g., 49, 4096)
+       ThreadID tid;       // Thread ID
+       bool valid;         // Entry valid flag
+   }
+
+2. LCT Counter (load_classification_table.hh:92)
+   std::vector<SatCounter8> localCtrs
+   - 2-bit saturating counters (default)
+   - Indexed by PC
+   - Counter states:
+       0: STRONG_UNPREDICTABLE
+       1: WEAK_UNPREDICTABLE
+       2: PREDICTABLE
+       3: CONSTANT (saturated)
+
+3. CVU CAM Entry (constant_verification_unit.hh:70-76)
+   struct CAMEntry {
+       Addr lvpt_index;      // Index in LVPT
+       Addr pc;              // Load PC
+       Addr load_address;    // Load memory address
+       TimePoint entry;      // Entry creation time
+       TimePoint access;     // Last access time (for LRU)
+   }
+
+4. LVP Classification Types (base/types.hh)
+   enum LVPType {
+       LVP_STRONG_UNPREDICTABLE = 0,
+       LVP_WEAK_UNPREDICTABLE = 1,
+       LVP_PREDICTABLE = 2,
+       LVP_CONSTANT = 3
+   }
+
+================================================================================
+STATISTICS COLLECTED
+================================================================================
+
+Load Value Prediction Unit Stats (load_value_prediction_unit.cc:31-61):
+- numPredictableLoads           # Loads classified as predictable
+- numPredictableCorrect         # Predictable loads correctly predicted
+- numPredictableIncorrect       # Predictable loads incorrectly predicted
+- numConstLoads                 # Loads classified as constant
+- numConstLoadsMispredicted     # Constant loads incorrectly predicted
+- numConstLoadsCorrect          # Constant loads correctly predicted
+- totalLoads                    # Total loads processed
+- numZeroConstLoads             # Constant loads with value 0
+- numOneConstLoads              # Constant loads with value 1
+- predictionAccuracy            # Overall accuracy
+- constAccuracy                 # Constant load accuracy
+- predictableAccuracy           # Predictable load accuracy
+
+Constant Verification Unit Stats (constant_verification_unit.cc:194-210):
+- constLoadHits                 # Constant loads found in CVU CAM
+- constLoadMisses               # Constant loads NOT found in CVU CAM
+- numStoreHits                  # Stores that invalidated CVU entries
+- numStoreMisses                # Stores with no CVU conflicts
+- numCAMReplacements            # CVU CAM entries replaced
+- numLoadAccesses               # Total constant load CVU accesses
+- numStoreAccesses              # Total store CVU accesses
+
+Load Classification Table: NO STATS IMPLEMENTED
+Load Value Prediction Table: NO STATS IMPLEMENTED
+
+================================================================================
+CONFIGURATION PARAMETERS
+================================================================================
+
+Load Classification Table (LoadValuePredictionUnit.py:10-18):
+- localPredictorSize = 512      # Number of counters
+- localCtrBits = 2              # Bits per counter (affects saturation)
+- invalidateConstToZero = False # Reset counter to 0 on constant invalidation
+
+Load Value Prediction Table (LoadValuePredictionUnit.py:20-27):
+- entries = 1024                # Number of LVPT entries
+- historyDepth = 1              # History depth (not used currently)
+- tagBits = 10                  # Hardcoded in constructor
+- instShiftAmt = 2              # Hardcoded in constructor
+
+Constant Verification Unit (LoadValuePredictionUnit.py:29-35):
+- entries = 8                   # Number of CVU CAM entries
+- replacementPolicy = 1         # 1=FIFO, 2=LRU, 3=NLRU, 4=MRU, 5=NMRU
+
+================================================================================
+IMPORTANT IMPLEMENTATION NOTES
+================================================================================
+
+1. LVPT Index Calculation (load_value_prediction_table.cc:62-68):
+   index = ((PC >> instShiftAmt) ^ (tid << (tagShiftAmt - instShiftAmt - log2NumThreads))) & idxMask
+   - instShiftAmt = 2 (shift off lower 2 bits)
+   - tagShiftAmt = instShiftAmt + log2(numEntries)
+   - log2NumThreads = 0 (single thread)
+   - idxMask = numEntries - 1
+
+2. LVPT Tag Calculation (load_value_prediction_table.cc:73-75):
+   tag = (PC >> tagShiftAmt) & tagMask
+   - tagMask = (1 << tagBits) - 1 = 0x3FF (10 bits)
+
+3. LCT Index Calculation (load_classification_table.cc:160-162):
+   index = (PC >> instShiftAmt) & indexMask
+   - instShiftAmt = 0 (no shift)
+   - indexMask = localPredictorSets - 1
+
+4. Critical Bug Fixes Applied:
+   a) log2NumThreads was uninitialized → Fixed by setting to 0
+   b) LVPT valid() didn't check tag → Fixed by adding tag comparison
+   c) lvptResultValid not set to false → Fixed by setting in else branch
+   d) LCT only consulted if LVPT valid → Fixed by always consulting LCT
+
+================================================================================
+DEBUG FLAGS
+================================================================================
+
+To enable debug output (defined in src/cpu/lvp/SConscript:45-49):
+- --debug-flags=LCT      # Load Classification Table debug
+- --debug-flags=LVPT     # Load Value Prediction Table debug
+- --debug-flags=CVU      # Constant Verification Unit debug
+- --debug-flags=LVP      # Load Value Predictor debug
+- --debug-flags=LVPAll   # All LVP debug (compound flag)
+
+Note: IEW stage LVP messages use std::cout (always visible, no flag needed)
+
+================================================================================
+FILE SUMMARY
+================================================================================
+
+Core LVP Implementation:
+- src/cpu/lvp/load_value_prediction_unit.{cc,hh}
+- src/cpu/lvp/load_classification_table.{cc,hh}
+- src/cpu/lvp/load_value_prediction_table.{cc,hh}
+- src/cpu/lvp/constant_verification_unit.{cc,hh}
+- src/cpu/lvp/LoadValuePredictionUnit.py
+
+O3 CPU Integration:
+- src/cpu/o3/iew.cc                  (prediction, constant verification)
+- src/cpu/o3/lsq_unit.cc             (execute, writeback/verification)
+- src/cpu/o3/dyn_inst.{cc,hh}        (wrapper methods)
+- src/cpu/o3/cpu.{cc,hh}             (LVP instantiation)
+
+Build System:
+- src/cpu/lvp/SConscript             (debug flags, build rules)
+
+================================================================================
+END OF DOCUMENT
+================================================================================

@@ -239,6 +239,11 @@ class IEW
         ldstQueue.setLastRetiredHtmUid(tid, htmUid);
     }
 
+    /** Sends commit proper information for a squash due to a load value
+     * misprediction. Public so LSQ can call it directly on value misprediction.
+     */
+    void squashDueToLoadValueMispred(const DynInstPtr &inst, ThreadID tid);
+
   private:
     /** Sends commit proper information for a squash due to a branch
      * mispredict.
