@@ -1,0 +1,6 @@
+=== Instruction Counts (Live Update) ===
+Total unique instructions: 2
+Total instructions executed: 205663462
+
+add: 123017323
+subs: 82646139

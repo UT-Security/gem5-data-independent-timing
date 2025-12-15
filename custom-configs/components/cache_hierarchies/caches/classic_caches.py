@@ -29,14 +29,14 @@ class L1DCache(Cache):
         # Hints:
         # - gem5 understands text labels, e.g., "8KiB"
         # - To represent no prefetcher, you can use the value NULL.
-        size: str = "32KiB",
+        size: str = "64KiB",
         assoc: int = 8,
-        tag_latency: int = 4,
-        data_latency: int = 4,
-        response_latency: int = 1,
+        tag_latency: int = 2,
+        data_latency: int = 2,
+        response_latency: int = 0,
         mshrs: int = 16,
-        tgts_per_mshr: int = 16,
-        write_buffers: int = 64,  # Matched to ChampSim default
+        tgts_per_mshr: int = 20,
+        write_buffers: int = 16,  # Matched to ChampSim default
         prefetcher: BasePrefetcher = StridePrefetcher(degree=3),
         replacement_policy: BaseReplacementPolicy = LRURP(),
         # The below should be false if downstream cache is mostly inclusive or if there is no
@@ -80,12 +80,12 @@ class L1ICache(Cache):
         # FIXME TODO: Set these appropriately.
         size: str = "32KiB",
         assoc: int =  8,
-        tag_latency: int =  4,
-        data_latency: int = 4,
-        response_latency: int = 1,
-        mshrs: int = 8,
-        tgts_per_mshr: int = 16,
-        write_buffers: int = 8,
+        tag_latency: int =  2,
+        data_latency: int = 2,
+        response_latency: int = 0,
+        mshrs: int = 16,
+        tgts_per_mshr: int = 20,
+        write_buffers: int = 16,
         prefetcher: BasePrefetcher = NULL,
         replacement_policy: BaseReplacementPolicy = LRURP(),
         # The below should be false if downstream cache is mostly inclusive or if there is no
@@ -129,17 +129,17 @@ class L2Cache(Cache):
         # FIXME TODO: Set these appropriately.
         size: str = "1MiB",
         assoc: int = 16,
-        tag_latency: int = 14,
-        data_latency: int = 14,
-        response_latency: int = 1,
+        tag_latency: int = 10,
+        data_latency: int = 10,
+        response_latency: int = 0,
         mshrs: int = 32,
-        tgts_per_mshr: int = 16,
+        tgts_per_mshr: int = 20,
         write_buffers: int = 32,  # Matched to ChampSim default
         prefetcher: BasePrefetcher = NULL,
         replacement_policy: BaseReplacementPolicy = LRURP(),
         # The below should be false if downstream cache is mostly inclusive or if there is no
         # downstream cache, true if downstream cache is mostly exclusive
-        writeback_clean: bool = False,
+        writeback_clean: bool = True,
         # The below is clusivity with respect to the upstream cache. Mostly inclusive means blocks
         # are allocated on all fills; mostly exclusive means allocate only from non-caching sources.
         # L1s should be mostly inclusive. Non-coherent caches, e.g., unified LLCs would generally
@@ -176,14 +176,14 @@ class LLCache(Cache):
     def __init__(
         self,
         # FIXME TODO: Set these appropriately.
-        size: str = "8MiB",
+        size: str = "2MiB",
         assoc: int = 16,
-        tag_latency: int = 44,
-        data_latency: int = 44,
-        response_latency: int = 1,
-        mshrs: int = 256,
-        tgts_per_mshr: int = 32,
-        write_buffers: int = 128,  # Matched to ChampSim default for 4 cores
+        tag_latency: int = 20,
+        data_latency: int = 20,
+        response_latency: int = 0,
+        mshrs: int = 64,
+        tgts_per_mshr: int = 20,
+        write_buffers: int = 64,  # Matched to ChampSim default for 4 cores
         # FIXME TODO: Set these appropriately.
         prefetcher: BasePrefetcher = NULL,
         replacement_policy: BaseReplacementPolicy = LRURP(),
@@ -193,7 +193,7 @@ class LLCache(Cache):
         # The below is clusivity with respect to the upstream cache. Mostly inclusive means blocks
         # are allocated on all fills; mostly exclusive means allocate only from non-caching sources.
         # L1s should be mostly inclusive.
-        clusivity: Clusivity = "mostly_incl",
+        clusivity: Clusivity = "mostly_excl",
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -225,13 +225,13 @@ Page table entry cache
 class MMUCache(Cache):
     def __init__(
         self,
-        size: str = "8KiB",
+        size: str = "32KiB",
         assoc: int = 8,
-        tag_latency: int = 1,
-        data_latency: int = 1,
-        response_latency: int = 1,
-        mshrs: int = 8,
-        tgts_per_mshr: int = 8,
+        tag_latency: int = 2,
+        data_latency: int = 2,
+        response_latency: int = 0,
+        mshrs: int = 16,
+        tgts_per_mshr: int = 20,
         writeback_clean: bool = True,
         **kwargs,
     ) -> None:

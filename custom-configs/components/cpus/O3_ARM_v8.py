@@ -163,22 +163,22 @@ class O3_ARM_v8_3(ArmO3CPU):
     iewToRenameDelay = 1
     commitToRenameDelay = 1
     commitToIEWDelay = 1
-    fetchWidth = 3
+    fetchWidth = 6
     fetchBufferSize = 16
     fetchToDecodeDelay = 3
-    decodeWidth = 3
+    decodeWidth = 6
     decodeToRenameDelay = 2
-    renameWidth = 3
+    renameWidth = 6
     renameToIEWDelay = 1
     issueToExecuteDelay = 1
     dispatchWidth = 6
-    issueWidth = 8
-    wbWidth = 8
+    issueWidth = 6
+    wbWidth = 6
     fuPool = O3_ARM_v8_FUP()
     iewToCommitDelay = 1
     renameToROBDelay = 1
-    commitWidth = 8
-    squashWidth = 8
+    commitWidth = 6
+    squashWidth = 6
     trapLatency = 13
     backComSize = 5
     forwardComSize = 5
@@ -186,13 +186,13 @@ class O3_ARM_v8_3(ArmO3CPU):
     numPhysFloatRegs = 400
     numPhysVecRegs = 48
     numIQEntries = 100
-    numROBEntries = 300
+    numROBEntries = 352
 
     switched_out = False
     branchPred = ArmTAGE()
 
     # Computational Simplification (enabled by default)
-    enableCompSimplification = False
+    enableCompSimplification = True
 
     #Load Value Predictor
     # loadValPred = LoadValuePredictionUnit(
@@ -212,42 +212,38 @@ class O3_ARM_v8_3(ArmO3CPU):
 
 # Instruction Cache
 class O3_ARM_v8_ICache(Cache):
-    tag_latency = 4
-    data_latency = 4
-    response_latency = 1
+    tag_latency = 2
+    data_latency = 2
+    response_latency = 0
     mshrs = 16
-    tgts_per_mshr = 16
-    size = "64KiB"
+    tgts_per_mshr = 20
+    size = "32KiB"
     assoc = 8
     is_read_only = True
-    # Writeback clean lines as well
-    writeback_clean = True
-
+    write_buffers = 16
 
 # Data Cache
 class O3_ARM_v8_DCache(Cache):
-    tag_latency = 4
-    data_latency = 4
-    response_latency = 1
+    tag_latency = 2
+    data_latency = 2
+    response_latency = 0
     mshrs = 16
-    tgts_per_mshr = 16
+    tgts_per_mshr = 20
     size = "64KiB"
     assoc = 8
-    write_buffers = 64
-    # Consider the L2 a victim cache also for clean lines
-    writeback_clean = True
+    write_buffers = 16
 
 
 # L2 Cache
 class O3_ARM_v8_L2(Cache):
-    tag_latency = 14
-    data_latency = 14
-    response_latency = 1
-    mshrs = 36
-    tgts_per_mshr = 16
-    size = "4MiB"
+    tag_latency = 10
+    data_latency = 10
+    response_latency = 0
+    mshrs = 32
+    tgts_per_mshr = 20
+    size = "1MiB"
     assoc = 16
-    write_buffers = 8
+    write_buffers = 32
     clusivity = "mostly_excl"
     # Simple stride prefetcher
     prefetcher = StridePrefetcher(degree=8, latency=1, prefetch_on_access=True)

@@ -28,6 +28,7 @@ requires(isa_required=ISA.ARM)
 
 # O3 core type recommended
 cpu_class = O3_ARM_v8_3
+# cpu_class = AtomicSimpleCPU
 
 processor = CustomARMProcessor(CPUCls=cpu_class)
 
@@ -35,7 +36,7 @@ processor = CustomARMProcessor(CPUCls=cpu_class)
 cache_hierarchy = ThreeLevelClassicHierarchy()
 
 # Create some DRAM
-memory = DualChannelDDR4_2400(size="3GiB")
+memory = DualChannelDDR4_2400(size="8GiB")
 
 # Create a board
 board = CustomSimpleBoard(
