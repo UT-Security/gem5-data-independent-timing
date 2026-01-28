@@ -12,9 +12,25 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <gem5/m5ops.h>
 
 #define ARRAY_SIZE 1024
 #define NUM_ITERATIONS 1000
+
+// Cache trashing array - 64KB to evict only L1 (data stays in L2)
+#define TRASH_SIZE (64 * 1024 / sizeof(int64_t))
+volatile int64_t trash_array[TRASH_SIZE];
+
+// Trash only L1 cache by accessing an array sized to L1
+// Data will be evicted from L1 but remain in L2
+__attribute__((noinline))
+void trash_cache() {
+    volatile int64_t sink = 0;
+    for (int i = 0; i < TRASH_SIZE; i += 8) {  // Step by cache line (64 bytes = 8 int64_t)
+        sink += trash_array[i];
+    }
+    (void)sink;  // Prevent optimization
+}
 
 // Structure with predictable fields
 // NOTE: Padding added to prevent ldp (load pair) instruction generation
@@ -73,8 +89,22 @@ void initialize_data() {
 int64_t test_constant_loads() {
     int64_t sum = 0;
     int64_t idx = 0;  // Starting index
+    uint64_t total_ns = 0;
+
+    // Immediate version (commented out):
+    __asm__ volatile("msr DIT, #1");
+
+    // Register version (bit 24 is the DIT bit in CPSR):
+    // uint64_t dit_enable = (1ULL << 24);
+    // __asm__ volatile("msr DIT, %0" : : "r" (dit_enable));
 
     for (int iter = 0; iter < NUM_ITERATIONS; iter++) {
+        // Trash L1 cache at start of each iteration to force L1 misses (data stays in L2)
+        trash_cache();
+
+        // Time the inner loop
+        uint64_t start_ns = m5_rpns();
+
         for (int i = 0; i < ARRAY_SIZE; i++) {
             // Load 1: Get index from index_array
             // This load determines the address of Load 2
@@ -99,8 +129,19 @@ int64_t test_constant_loads() {
             // Update index for next iteration
             idx = (idx + 1) % ARRAY_SIZE;
         }
+
+        uint64_t end_ns = m5_rpns();
+        total_ns += (end_ns - start_ns);
     }
 
+    // Immediate version (commented out):
+    __asm__ volatile("msr DIT, #0");
+
+    // Register version (bit 24 is the DIT bit in CPSR, 0 clears it):
+    // uint64_t dit_disable = 0;
+    // __asm__ volatile("msr DIT, %0" : : "r" (dit_disable));
+
+    printf("Average iteration time: %lu ns\n", total_ns / NUM_ITERATIONS);
     return sum;
 }
 

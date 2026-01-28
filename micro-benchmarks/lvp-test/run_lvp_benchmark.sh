@@ -46,7 +46,7 @@ echo ""
 read -p "Press Enter to continue or Ctrl+C to abort..."
 
 # Run gem5
-eval "../../build/ARM/gem5.opt --outdir=$MODE ../../custom-configs/se_custom_arm_binary.py --input-bin 'lvp_benchmark'"
+eval "../../build/ARM/gem5.opt --outdir=$MODE --debug-flags=DIT ../../custom-configs/se_custom_arm_binary.py --input-bin 'lvp_benchmark'"
 
 echo ""
 echo "========================================="
