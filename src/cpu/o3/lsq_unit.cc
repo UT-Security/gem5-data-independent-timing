@@ -41,6 +41,8 @@
 
 #include "cpu/o3/lsq_unit.hh"
 
+#include "arch/arm/regs/misc.hh"
+#include "arch/arm/regs/misc_types.hh"
 #include "arch/generic/debugfaults.hh"
 #include "base/str.hh"
 #include "cpu/checker/cpu.hh"
@@ -734,13 +736,20 @@ LSQUnit::commitLoad()
     DPRINTF(LSQUnit, "Committing head load instruction, PC %s\n",
             inst->pcState());
 
-    // Update histogram with memory latency from load
-    // Only take latency from load demand that where issued and did not fault
+    // Update histogram with effective memory latency from load
+    // Only take latency from load demand that were issued and did not fault
     if (!inst->isInstPrefetch() && !inst->isDataPrefetch()
             && inst->firstIssue != -1
             && inst->lastWakeDependents != -1) {
-        stats.loadToUse.sample(cpu->ticksToCycles(
-                    inst->lastWakeDependents - inst->firstIssue));
+        // LVP-aware loadToUse: sample effective latency
+        if (inst->wasLvpPredicted() && inst->predictionWasCorrect()) {
+            // Correctly predicted: effective latency is 0 for dependents
+            stats.loadToUse.sample(0);
+        } else {
+            // Not predicted or incorrect: actual memory latency
+            stats.loadToUse.sample(cpu->ticksToCycles(
+                        inst->lastWakeDependents - inst->firstIssue));
+        }
     }
 
     loadQueue.front().clear();
@@ -1105,7 +1114,15 @@ LSQUnit::writeback(const DynInstPtr &inst, PacketPtr pkt)
             // Load Value Predictor: Verify prediction on load completion
             // Only track single-destination integer loads (scalar values)
             // Multi-destination loads are filtered out at dispatch
-            if (cpu->lvp && inst->isLoad() && inst->numDestRegs() == 1) {
+            // Skip verification when DIT is enabled for data-independent timing:
+            // - archDitEnabled: architectural CPSR.dit is set
+            // - specDitEnabled: there's an older in-flight MSR DIT #1
+            ArmISA::CPSR cpsr = inst->tcBase()->readMiscReg(ArmISA::MISCREG_CPSR);
+            bool archDitEnabled = cpsr.dit;
+            bool specDitEnabled = cpu->hasOlderSpecDITEnable(
+                inst->threadNumber, inst->seqNum);
+            bool ditEnabled = archDitEnabled || specDitEnabled;
+            if (cpu->lvp && inst->isLoad() && inst->numDestRegs() == 1 && !ditEnabled) {
                 PhysRegIdPtr dest_reg = inst->renamedDestIdx(0);
 
                 // Oracle tracking for headroom study - track all register classes

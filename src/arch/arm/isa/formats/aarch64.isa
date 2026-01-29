@@ -459,7 +459,7 @@ namespace Aarch64
                                 machInst, MISCREG_SPSEL, crm);
                           case 0x1a:
                             // DIT (op1=3, op2=2)
-                            return new MsrImm64(
+                            return new MsrImmDIT64(
                                 machInst, MISCREG_DIT, crm);
                           case 0x1b:
                             // SVE SVCR - SMSTART/SMSTOP
@@ -639,6 +639,9 @@ namespace Aarch64
                               case MISCREG_AT_S1E3W_Xt:
                                 return new At64Hub(machInst, miscReg,
                                   MiscRegIndex::MISCREG_PAR_EL1, rt);
+                              // DIT register variant - uses IsSquashAfter
+                              case MISCREG_DIT:
+                                return new MsrDIT64(machInst, miscReg, rt);
                               default:
                                 return new Msr64(machInst, miscReg, rt);
                             }

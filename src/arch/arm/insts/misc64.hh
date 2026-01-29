@@ -201,6 +201,13 @@ class MiscRegImmOp64 : public MiscRegOp64
 
     std::string generateDisassembly(
             Addr pc, const loader::SymbolTable *symtab) const override;
+
+  public:
+    /** Get the immediate value for this MSR instruction */
+    uint32_t getImm() const { return imm; }
+
+    /** Get the destination misc register index */
+    ArmISA::MiscRegIndex getDest() const { return dest; }
 };
 
 class MiscRegRegImmOp64 : public MiscRegOp64

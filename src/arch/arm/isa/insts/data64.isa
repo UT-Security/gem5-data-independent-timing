@@ -358,6 +358,14 @@ let {{
     decoder_output += MiscRegRegOp64Constructor.subst(msrIop)
     exec_output += BasicExecute.subst(msrIop)
 
+    # MSR DIT register variant - uses IsSquashAfter for pipeline flush
+    msrDitIop = ArmInstObjParams("msr", "MsrDIT64", "MiscRegRegImmOp64",
+                              msrCode,
+                              ["IsSquashAfter"])
+    header_output += MiscRegRegOp64Declare.subst(msrDitIop)
+    decoder_output += MiscRegRegOp64Constructor.subst(msrDitIop)
+    exec_output += BasicExecute.subst(msrDitIop)
+
     tlbiCode = msr_check_code + '''
         performTlbi(xc, flat_idx, XOp1);
     '''
@@ -562,8 +570,10 @@ let {{
     exec_output += DCStore64InitiateAcc.subst(msrDCIVACIop);
     exec_output += Store64CompleteAcc.subst(msrDCIVACIop);
 
-    def buildMsrImmInst(mnem, inst_name, code):
+    def buildMsrImmInst(mnem, inst_name, code, flags=None):
         global header_output, decoder_output, exec_output
+        if flags is None:
+            flags = ["IsSerializeAfter", "IsNonSpeculative"]
         msrImmPermission = '''
             auto pre_flat =
                 (MiscRegIndex)snsBankedIndex64(dest, xc->tcBase());
@@ -578,7 +588,7 @@ let {{
         '''
         msrIop = ArmInstObjParams("msr", inst_name, "MiscRegImmOp64",
                                   msrImmPermission + code,
-                                  ["IsSerializeAfter", "IsNonSpeculative"])
+                                  flags)
         header_output += MiscRegOp64Declare.subst(msrIop)
         decoder_output += MiscRegOp64Constructor.subst(msrIop)
         exec_output += BasicExecute.subst(msrIop)
@@ -598,6 +608,12 @@ let {{
     buildMsrImmInst("msr", "MsrImmDAIFClr64", '''
         CPSR cpsr = Cpsr;
         cpsr.daif = cpsr.daif & ~imm;
+        Cpsr = cpsr;
+    ''')
+
+    buildMsrImmInst("msr", "MsrImmDIT64", '''
+        CPSR cpsr = Cpsr;
+        cpsr.dit = (imm & 0x1);
         Cpsr = cpsr;
     ''')
 

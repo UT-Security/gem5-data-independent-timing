@@ -246,6 +246,8 @@ class DynInst : public ExecContext, public RefCounted
     RegVal _predictedVal;
     /** Whether the prediction was correct (verified after load completes) */
     bool _predictionCorrect;
+    /** Whether this load was ever LVP-predicted (persistent, never cleared) */
+    bool _wasLvpPredicted = false;
     /** Whether this load will execute speculatively */
     bool _specExecOnLoad;
 
@@ -394,6 +396,13 @@ class DynInst : public ExecContext, public RefCounted
     /** Whether or not this load was predicted by LVP. */
     bool isLvpPredicted() const { return instFlags[LvpPredicted]; }
     void setLvpPredicted(bool f) { instFlags[LvpPredicted] = f; }
+
+    /** Whether this load was ever LVP-predicted (persistent flag for stats). */
+    bool wasLvpPredicted() const { return _wasLvpPredicted; }
+    void setWasLvpPredicted(bool f) { _wasLvpPredicted = f; }
+
+    /** Whether the LVP prediction was correct (set during verification). */
+    bool predictionWasCorrect() const { return _predictionCorrect; }
 
     bool notAnInst() const { return instFlags[NotAnInst]; }
     void setNotAnInst() { instFlags[NotAnInst] = true; }

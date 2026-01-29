@@ -540,6 +540,28 @@ class CPU : public BaseCPU
     /** Oracle for load value headroom study */
     LoadOracle *loadOracle;
 
+    /** Entry for tracking in-flight MSR DIT instructions speculatively */
+    struct SpecDITEntry {
+        InstSeqNum seqNum;
+        uint8_t ditValue;  // 0 = disable DIT, 1 = enable DIT
+        SpecDITEntry(InstSeqNum sn, uint8_t val) : seqNum(sn), ditValue(val) {}
+    };
+
+    /** Per-thread list of in-flight MSR DIT instructions */
+    std::list<SpecDITEntry> specDITList[MaxThreads];
+
+    /** Add MSR DIT to speculative tracking */
+    void addSpecDIT(ThreadID tid, InstSeqNum seqNum, uint8_t ditValue);
+
+    /** Remove entries with seqNum > squashSeqNum on squash */
+    void squashSpecDIT(ThreadID tid, InstSeqNum squashSeqNum);
+
+    /** Remove specific entry on commit */
+    void commitSpecDIT(ThreadID tid, InstSeqNum seqNum);
+
+    /** Check if LVP should be disabled due to older speculative DIT #1 */
+    bool hasOlderSpecDITEnable(ThreadID tid, InstSeqNum loadSeqNum) const;
+
     /** Pointer to the system. */
     System *system;
 

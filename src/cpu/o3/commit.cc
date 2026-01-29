@@ -45,6 +45,8 @@
 #include <set>
 #include <string>
 
+#include "arch/arm/insts/misc64.hh"
+#include "arch/arm/regs/misc.hh"
 #include "base/compiler.hh"
 #include "base/loader/symtab.hh"
 #include "base/logging.hh"
@@ -1057,6 +1059,17 @@ Commit::commitInsts()
 
                 // Updates misc. registers.
                 head_inst->updateMiscRegs();
+
+                // Remove committed MSR DIT from speculative tracking
+                // The architectural DIT state now takes over
+                if (head_inst->staticInst->getName() == "msr") {
+                    auto miscRegInst = dynamic_cast<const MiscRegImmOp64*>(
+                        head_inst->staticInst.get());
+                    if (miscRegInst &&
+                        miscRegInst->getDest() == ArmISA::MISCREG_DIT) {
+                        cpu->commitSpecDIT(tid, head_inst->seqNum);
+                    }
+                }
 
                 // Check instruction execution if it successfully commits and
                 // is not carrying a fault.

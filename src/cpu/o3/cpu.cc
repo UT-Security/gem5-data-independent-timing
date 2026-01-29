@@ -51,6 +51,7 @@
 #include "cpu/simple_thread.hh"
 #include "cpu/thread_context.hh"
 #include "debug/Activity.hh"
+#include "debug/DIT.hh"
 #include "debug/Drain.hh"
 #include "debug/O3CPU.hh"
 #include "debug/Quiesce.hh"
@@ -1494,6 +1495,64 @@ CPU::htmSendAbortSignal(ThreadID tid, uint64_t htm_uid,
     if (!iew.ldstQueue.getDataPort().sendTimingReq(abort_pkt)) {
         panic("HTM abort signal was not sent to the memory subsystem.");
     }
+}
+
+void
+CPU::addSpecDIT(ThreadID tid, InstSeqNum seqNum, uint8_t ditValue)
+{
+    // Insert in seqNum order (maintain sorted list)
+    auto it = specDITList[tid].begin();
+    while (it != specDITList[tid].end() && it->seqNum < seqNum)
+        ++it;
+    specDITList[tid].insert(it, SpecDITEntry(seqNum, ditValue));
+
+    DPRINTF(DIT, "Added speculative MSR DIT #%d [sn:%llu] to tracking\n",
+            ditValue, seqNum);
+}
+
+void
+CPU::squashSpecDIT(ThreadID tid, InstSeqNum squashSeqNum)
+{
+    // Remove entries with seqNum > squashSeqNum (these are being squashed)
+    auto it = specDITList[tid].begin();
+    while (it != specDITList[tid].end()) {
+        if (it->seqNum > squashSeqNum) {
+            DPRINTF(DIT, "Squashing speculative MSR DIT [sn:%llu] from tracking\n",
+                    it->seqNum);
+            it = specDITList[tid].erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+void
+CPU::commitSpecDIT(ThreadID tid, InstSeqNum seqNum)
+{
+    // Remove the committed entry
+    auto it = specDITList[tid].begin();
+    while (it != specDITList[tid].end()) {
+        if (it->seqNum == seqNum) {
+            DPRINTF(DIT, "Committing speculative MSR DIT [sn:%llu], "
+                    "removing from tracking\n", seqNum);
+            specDITList[tid].erase(it);
+            return;
+        }
+        ++it;
+    }
+}
+
+bool
+CPU::hasOlderSpecDITEnable(ThreadID tid, InstSeqNum loadSeqNum) const
+{
+    // Check if any MSR DIT #1 exists that is older than the load
+    for (const auto& entry : specDITList[tid]) {
+        if (entry.seqNum < loadSeqNum && entry.ditValue == 1) {
+            // Found an older MSR DIT #1 (enable DIT) - must disable LVP
+            return true;
+        }
+    }
+    return false;
 }
 
 } // namespace o3

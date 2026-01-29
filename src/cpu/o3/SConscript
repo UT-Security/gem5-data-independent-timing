@@ -61,6 +61,7 @@ if env['CONF']['BUILD_ISA']:
 
     DebugFlag('CommitRate')
     DebugFlag('CompSimp', 'Computational Simplification fast-path execution')
+    DebugFlag('DIT', 'Data Independent Timing speculative tracking')
     DebugFlag('IEW')
     DebugFlag('IQ')
     DebugFlag('LSQ')

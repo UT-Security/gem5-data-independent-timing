@@ -192,9 +192,9 @@ class O3_ARM_v8_3(ArmO3CPU):
     branchPred = ArmTAGE()
 
     # Computational Simplification (enabled by default)
-    enableCompSimplification = True
+    enableCompSimplification = False
 
-    #Load Value Predictor
+    # ##Load Value Predictor
     # loadValPred = LoadValuePredictionUnit(
     #     load_classification_table=LoadClassificationTable(
     #         numEntries=4096,
@@ -207,8 +207,6 @@ class O3_ARM_v8_3(ArmO3CPU):
     #         instShiftAmt=2
     #     )
     # )
-
-
 
 # Instruction Cache
 class O3_ARM_v8_ICache(Cache):

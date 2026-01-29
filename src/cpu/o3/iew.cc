@@ -48,12 +48,16 @@
 #include <iostream>
 #include <queue>
 
+#include "arch/arm/insts/misc64.hh"
+#include "arch/arm/regs/misc.hh"
+#include "arch/arm/regs/misc_types.hh"
 #include "cpu/checker/cpu.hh"
 #include "cpu/o3/dyn_inst.hh"
 #include "cpu/o3/fu_pool.hh"
 #include "cpu/o3/limits.hh"
 #include "cpu/timebuf.hh"
 #include "debug/Activity.hh"
+#include "debug/DIT.hh"
 #include "debug/Drain.hh"
 #include "debug/IEW.hh"
 #include "debug/O3PipeView.hh"
@@ -940,6 +944,19 @@ IEW::dispatchInsts(ThreadID tid)
             continue;
         }
 
+        // Speculative DIT tracking: Detect MSR DIT (immediate form) at dispatch
+        // When MSR DIT #1 is detected, all younger loads should have LVP disabled
+        if (inst->staticInst->getName() == "msr") {
+            auto miscRegInst = dynamic_cast<const MiscRegImmOp64*>(
+                inst->staticInst.get());
+            if (miscRegInst && miscRegInst->getDest() == ArmISA::MISCREG_DIT) {
+                uint8_t ditValue = miscRegInst->getImm() & 0x1;
+                cpu->addSpecDIT(tid, inst->seqNum, ditValue);
+                DPRINTF(DIT, "[tid:%i] Detected MSR DIT #%d [sn:%llu] at dispatch\n",
+                        tid, ditValue, inst->seqNum);
+            }
+        }
+
         // Check for full conditions.
         if (instQueue.isFull(tid)) {
             DPRINTF(IEW, "[tid:%i] Issue: IQ has become full.\n", tid);
@@ -1022,7 +1039,20 @@ IEW::dispatchInsts(ThreadID tid)
             // Only handle single-destination loads (numDestRegs() == 1)
             // Multi-destination loads (e.g., LDP, loads with writeback) are skipped
             // because LVP can only predict one value per PC
-            if (cpu->lvp && inst->numDestRegs() == 1) {
+            // LVP is disabled when DIT (Data Independent Timing) is enabled:
+            // - archDitEnabled: architectural CPSR.dit is set
+            // - specDitEnabled: there's an older in-flight MSR DIT #1
+            ArmISA::CPSR cpsr = inst->tcBase()->readMiscReg(ArmISA::MISCREG_CPSR);
+            bool archDitEnabled = cpsr.dit;
+            bool specDitEnabled = cpu->hasOlderSpecDITEnable(tid, inst->seqNum);
+            bool ditEnabled = archDitEnabled || specDitEnabled;
+
+            if (specDitEnabled && !archDitEnabled) {
+                DPRINTF(DIT, "[tid:%i] LVP disabled for load [sn:%llu] due to "
+                        "speculative MSR DIT #1 in flight\n", tid, inst->seqNum);
+            }
+
+            if (cpu->lvp && inst->numDestRegs() == 1 && !ditEnabled) {
                 PhysRegIdPtr dest_reg = inst->renamedDestIdx(0);
                 if(dest_reg->classValue() == IntRegClass) {
                     auto prediction = inst->predictLoad(tid);
@@ -1044,6 +1074,7 @@ IEW::dispatchInsts(ThreadID tid)
 
                         // Mark this load as LVP-predicted for tracking
                         inst->setLvpPredicted(true);
+                        inst->setWasLvpPredicted(true);  // Persistent flag for stats
 
                         // // Print prediction info for debugging
                         // std::cout << "LVP PREDICT: PC=" << std::hex << inst->pcState().instAddr()

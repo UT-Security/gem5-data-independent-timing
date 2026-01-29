@@ -468,6 +468,9 @@ ROB::squash(InstSeqNum squash_num, ThreadID tid)
 
     squashedSeqNum[tid] = squash_num;
 
+    // Clear speculative DIT entries that are being squashed
+    cpu->squashSpecDIT(tid, squash_num);
+
     if (!instList[tid].empty()) {
         InstIt tail_thread = instList[tid].end();
         tail_thread--;
